@@ -1,0 +1,39 @@
+name: talent_find
+description: "TalentTrack - Sports Authority of India Talent Assessment Platform"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI and Fonts
+  google_fonts: ^6.1.0
+  cupertino_icons: ^1.0.8
+
+  # Firebase Core (required for all Firebase services)
+  firebase_core: ^3.6.0
+
+  # Firebase Authentication
+  firebase_auth: ^5.3.1
+
+  # Cloud Firestore (for database)
+  cloud_firestore: ^5.4.3
+
+  # Google Sign In (compatible with firebase_auth 5.3.1)
+  google_sign_in: ^6.2.1
+
+  # Note: firebase_storage removed - not needed for current MVP
+  # We can add it later when implementing file uploads
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
