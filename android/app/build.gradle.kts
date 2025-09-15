@@ -33,12 +33,21 @@ android {
         versionName = flutter.versionName
     }
 
+    ndk {
+        abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+        debug {
+            minifyEnabled false
+            debuggable true
     }
 }
 
@@ -49,4 +58,7 @@ flutter {
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:34.2.0"))
     implementation("com.google.firebase:firebase-analytics")
+
+    implementation("org.tensorflow:tensorflow-lite:2.13.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 }
