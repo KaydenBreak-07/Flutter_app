@@ -184,6 +184,46 @@ class FirestoreService {
     }
   }
 
+  // ==================== ATHLETE DATA FOR SAI OFFICIALS ====================
+
+  /// Get recent athletes for SAI dashboard
+  static Future<List<Map<String, dynamic>>> getRecentAthletes({int limit = 10}) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('athletes')
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print('Error getting recent athletes: $e');
+      return [];
+    }
+  }
+
+  /// Get all athletes for SAI officials to browse
+  static Future<List<Map<String, dynamic>>> getAllAthletes() async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('athletes')
+          .get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print('Error getting all athletes: $e');
+      return [];
+    }
+  }
+
   // ==================== TEST RESULTS OPERATIONS ====================
 
   /// Save test result
