@@ -18,21 +18,113 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="TalentFind - SAI Talent Assessment Platform">
 
   <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="talent_find">
+  <meta name="apple-mobile-web-app-title" content="TalentFind">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>talent_find</title>
+  <title>TalentFind - SAI Talent Assessment Platform</title>
   <link rel="manifest" href="manifest.json">
+
+  <script>
+    // The value below is injected by flutter build, do not touch.
+    const serviceWorkerVersion = null;
+  </script>
+  <!-- This script adds the flutter initialization JS code -->
+  <script src="flutter.js" defer></script>
+
+  <!-- Firebase configuration -->
+  <script type="module">
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js';
+    import { getAnalytics } from 'https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics.js';
+
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDV3oiEX5lcE_p94ZGifY5AcbKb1p-JqB4",
+      authDomain: "talentfind-42020.firebaseapp.com",
+      projectId: "talentfind-42020",
+      storageBucket: "talentfind-42020.firebasestorage.app",
+      messagingSenderId: "210379975180",
+      appId: "1:210379975180:web:5d01c2101b2fba3b381c29",
+      measurementId: "G-86VQKZ1LXS"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+
+    // Make Firebase available globally for Flutter
+    window.firebaseConfig = firebaseConfig;
+  </script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #0A2E6D;
+      font-family: 'Roboto', sans-serif;
+    }
+
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      color: white;
+    }
+
+    .loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top: 3px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 20px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .loading-text {
+      font-size: 18px;
+      font-weight: 500;
+    }
+  </style>
 </head>
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+<!-- Loading screen -->
+<div id="loading" class="loading">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">Loading TalentFind...</div>
+</div>
+
+<script>
+  window.addEventListener('load', function(ev) {
+    // Download main.dart.js
+    _flutter.loader.loadEntrypoint({
+      serviceWorker: {
+        serviceWorkerVersion: serviceWorkerVersion,
+      },
+      onEntrypointLoaded: function(engineInitializer) {
+        engineInitializer.initializeEngine().then(function(appRunner) {
+          // Hide loading screen
+          document.getElementById('loading').style.display = 'none';
+          appRunner.runApp();
+        });
+      }
+    });
+  });
+</script>
 </body>
 </html>

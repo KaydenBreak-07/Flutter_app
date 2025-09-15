@@ -15,6 +15,7 @@ class TestResult {
   final String scoreCategory; // Excellent, Very Good, Good, Average, Poor
   final int attemptNumber;
   final Map<String, dynamic>? metadata;
+  final Map<String, dynamic>? aiAnalysis;
 
   TestResult({
     required this.id,
@@ -27,6 +28,7 @@ class TestResult {
     this.videoPath,
     this.videoUrl,
     this.cheatDetectionResults,
+    this.aiAnalysis,
     required this.scoreCategory,
     this.attemptNumber = 1,
     this.metadata,
@@ -122,6 +124,7 @@ class TestResult {
       'timestamp': Timestamp.fromDate(timestamp),
       'videoPath': videoPath,
       'videoUrl': videoUrl,
+      'aiAnalysis': aiAnalysis,
       'cheatDetectionResults': cheatDetectionResults,
       'scoreCategory': scoreCategory,
       'attemptNumber': attemptNumber,

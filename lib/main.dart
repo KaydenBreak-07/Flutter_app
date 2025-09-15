@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:provider/provider.dart';
+import 'firebase_options.dart';
 import 'providers/athlete_provider.dart';
 import 'screens/auth/role_selection_screen.dart';
 import 'screens/athlete_profile_setup.dart';
@@ -14,7 +15,9 @@ import 'services/firestore_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MyApp());
 }
 
@@ -70,27 +73,7 @@ class MyApp extends StatelessWidget {
           '/roleSelection': (context) => const RoleSelectionScreen(),
           '/athleteProfileSetup': (context) => const AthleteProfileSetup(),
           '/athleteDashboard': (context) => const DashboardScreen(),
-          '/officialDashboard': (context) {
-            print('ROUTE DEBUG: officialDashboard route called');
-            try {
-              return const SAIDashboard();
-            } catch (e) {
-              print('ERROR: SAIDashboard failed to load: $e');
-              return const Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('SAI Dashboard Error'),
-                      SizedBox(height: 16),
-                      Text('Check console for details'),
-                    ],
-                  ),
-                ),
-              );
-            }
-          },
-
+          '/officialDashboard': (context) => const SAIDashboard(),
           '/pendingApproval': (context) => const PendingApprovalScreen(),
           '/adminDashboard': (context) => const AdminDashboard(),
         },
@@ -170,155 +153,107 @@ class _RoleBasedRouterState extends State<RoleBasedRouter> {
       print('Is Admin: $adminCheck');
       if (adminCheck) {
         print('Routing to Admin Dashboard');
-        if (mounted) {
-          setState(() {
-            _targetRoute = '/adminDashboard';
-            _isLoading = false;
-          });
-        }
-        return; // CRITICAL: Exit early for admin
+        setState(() {
+          _targetRoute = '/adminDashboard';
+          _isLoading = false;
+        });
+        return;
       }
-
-      // DEBUG: Check all user collections
-      await FirestoreService.debugUserCollections(userId);
 
       // STEP 2: Get user data from Firestore
       final userData = await FirestoreService.getUserRole(userId);
       final userRole = userData['role'];
-      final userStatus = userData['status'];
+      final userStatus = userData['status'] ?? 'approved'; // Default for existing users
 
-      print('=== LOGIN NAVIGATION DEBUG START ===');
-      print('User ID: $userId');
-      print('Full userData: $userData');
-      print('Role: $userRole (${userRole?.runtimeType})');
-      print('Status: $userStatus (${userStatus?.runtimeType})');
+      print('User Role: $userRole');
+      print('User Status: $userStatus');
+      print('Full User Data: $userData');
 
-      // STEP 3: Handle null or empty role - route to role selection
-      if (userRole == null || userRole.toString().isEmpty) {
-        print('No valid role found - routing to Role Selection');
-        if (mounted) {
-          setState(() {
-            _targetRoute = '/roleSelection';
-            _isLoading = false;
-          });
-        }
-        return; // CRITICAL: Exit early for no role
-      }
-
-      // STEP 4: Route based on role and status
-      switch (userRole.toString().toLowerCase()) {
+      // STEP 3: Route based on role and status
+      switch (userRole) {
         case 'athlete':
           print('Processing athlete routing...');
-          try {
-            final profile = await FirestoreService.getAthleteProfile();
-            if (profile?.isComplete == true) {
-              if (mounted) {
-                Provider.of<AthleteProvider>(context, listen: false).setProfile(profile);
-              }
-              print('Routing to Athlete Dashboard');
-              if (mounted) {
-                setState(() {
-                  _targetRoute = '/athleteDashboard';
-                  _isLoading = false;
-                });
-              }
-            } else {
-              print('Routing to Profile Setup');
-              if (mounted) {
-                setState(() {
-                  _targetRoute = '/athleteProfileSetup';
-                  _isLoading = false;
-                });
-              }
+          // Check if athlete profile is complete
+          final profile = await FirestoreService.getAthleteProfile();
+          if (profile?.isComplete == true) {
+            // Initialize provider with profile data
+            if (mounted) {
+              Provider.of<AthleteProvider>(context, listen: false).setProfile(profile);
             }
-          } catch (e) {
-            print('Error getting athlete profile: $e');
-            // Default to profile setup if error
+            print('Routing to Athlete Dashboard');
+            setState(() {
+              _targetRoute = '/athleteDashboard';
+              _isLoading = false;
+            });
+          } else {
+            print('Routing to Profile Setup');
+            setState(() {
+              _targetRoute = '/athleteProfileSetup';
+              _isLoading = false;
+            });
+          }
+          break;
+
+        case 'official':
+        case 'sai_official':
+          print('Processing SAI official routing...');
+          print('Status check: "$userStatus" == "approved" ? ${userStatus == "approved"}');
+
+          if (userStatus == 'approved') {
+            print('Status approved - routing to SAI Dashboard');
             if (mounted) {
               setState(() {
-                _targetRoute = '/athleteProfileSetup';
+                _targetRoute = '/officialDashboard';
+                _isLoading = false;
+              });
+            }
+          } else if (userStatus == 'pending') {
+            print('Status pending - routing to Pending Approval');
+            if (mounted) {
+              setState(() {
+                _targetRoute = '/pendingApproval';
+                _isLoading = false;
+              });
+            }
+          } else if (userStatus == 'rejected') {
+            print('Status rejected - routing to Pending Approval (to show rejection)');
+            if (mounted) {
+              setState(() {
+                _targetRoute = '/pendingApproval';
+                _isLoading = false;
+              });
+            }
+          } else {
+            print('Unknown status ($userStatus) - defaulting to pending');
+            if (mounted) {
+              setState(() {
+                _targetRoute = '/pendingApproval';
                 _isLoading = false;
               });
             }
           }
           break;
 
-        case 'official':
-        case 'sai_official':
-          print('Processing SAI official...');
-
-          // Convert status to string and trim whitespace
-          final statusString = userStatus?.toString().trim() ?? 'pending';
-          print('Status check: "$statusString"');
-
-          switch (statusString.toLowerCase()) {
-            case 'approved':
-              print('Status approved - navigating to SAI Dashboard');
-              if (mounted) {
-                setState(() {
-                  _targetRoute = '/officialDashboard';
-                  _isLoading = false;
-                });
-              }
-              break;
-
-            case 'pending':
-              print('Status pending - navigating to Pending Approval');
-              if (mounted) {
-                setState(() {
-                  _targetRoute = '/pendingApproval';
-                  _isLoading = false;
-                });
-              }
-              break;
-
-            case 'rejected':
-              print('Status rejected - navigating to Pending Approval');
-              if (mounted) {
-                setState(() {
-                  _targetRoute = '/pendingApproval';
-                  _isLoading = false;
-                });
-              }
-              break;
-
-            default:
-              print('Unknown status ($statusString) - defaulting to pending');
-              if (mounted) {
-                setState(() {
-                  _targetRoute = '/pendingApproval';
-                  _isLoading = false;
-                });
-              }
-              break;
-          }
-          break;
-
+        case null:
         default:
-        // Invalid role - treat as new user
-          print('Unknown role ($userRole) - routing to Role Selection');
-          if (mounted) {
-            setState(() {
-              _targetRoute = '/roleSelection';
-              _isLoading = false;
-            });
-          }
+        // No role found or invalid role - treat as new user
+          print('No valid role found - routing to Role Selection');
+          setState(() {
+            _targetRoute = '/roleSelection';
+            _isLoading = false;
+          });
           break;
       }
 
-      print('=== LOGIN NAVIGATION DEBUG END ===');
       print('Final target route: $_targetRoute');
       print('=== END ROUTING DEBUG ===');
 
     } catch (e) {
       print('Error in role-based navigation: $e');
-      // Always fallback to role selection on error
-      if (mounted) {
-        setState(() {
-          _targetRoute = '/roleSelection';
-          _isLoading = false;
-        });
-      }
+      setState(() {
+        _targetRoute = '/roleSelection';
+        _isLoading = false;
+      });
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/athlete_profile.dart';
 import '../models/test_result.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class FirestoreService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
