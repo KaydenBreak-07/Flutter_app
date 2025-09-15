@@ -11,7 +11,123 @@ class FirestoreService {
   // Get current user ID
   static String? get currentUserId => _auth.currentUser?.uid;
 
-  // ==================== USER PROFILE OPERATIONS ====================
+  // ==================== USER ROLE MANAGEMENT ====================
+
+  /// Set user role with approval status
+  static Future<void> setUserRole(String userId, String role) async {
+    try {
+      Map<String, dynamic> userData = {
+        'uid': userId,
+        'role': role,
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      // Set status based on role
+      if (role == 'sai_official') {
+        userData['status'] = 'pending'; // SAI officials need approval
+      } else {
+        userData['status'] = 'approved'; // Athletes and others are auto-approved
+      }
+
+      // Save in users collection
+      await _firestore.collection('users').doc(userId).set(userData, SetOptions(merge: true));
+
+      // Also save in role-specific collection for sai_officials
+      if (role == 'sai_official') {
+        await _firestore.collection('sai_officials').doc(userId).set(userData, SetOptions(merge: true));
+      }
+
+      print('User role set: $userId -> $role with status: ${userData['status']}');
+    } catch (e) {
+      print('Error setting user role: $e');
+      rethrow;
+    }
+  }
+
+  /// Get user role and all data including status
+  static Future<Map<String, dynamic>> getUserRole(String userId) async {
+    try {
+      print('=== getUserRole DEBUG START ===');
+      print('Checking user ID: $userId');
+
+      // First check if user is admin (highest priority)
+      final adminDoc = await _firestore.collection('system_admins').doc(userId).get();
+      print('Admin doc exists: ${adminDoc.exists}');
+      if (adminDoc.exists && adminDoc.data() != null) {
+        final data = adminDoc.data()!;
+        data['role'] = 'admin'; // Ensure role is set
+        print('Admin data: $data');
+        return data;
+      }
+
+      // Check sai_officials collection
+      final saiDoc = await _firestore.collection('sai_officials').doc(userId).get();
+      print('SAI doc exists: ${saiDoc.exists}');
+      if (saiDoc.exists && saiDoc.data() != null) {
+        final data = saiDoc.data()!;
+        print('SAI raw data: $data');
+        print('SAI status: "${data['status']}" (${data['status']?.runtimeType})');
+
+        // Ensure consistent role naming
+        if (data['role'] == 'official') {
+          data['role'] = 'sai_official';
+        }
+
+        // Ensure status exists and is properly formatted
+        if (data['status'] == null) {
+          data['status'] = 'pending'; // Default for SAI officials
+        }
+
+        print('SAI processed data: $data');
+        return data;
+      }
+
+      // Check users collection (fallback for athletes or old data)
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      print('Users doc exists: ${userDoc.exists}');
+      if (userDoc.exists && userDoc.data() != null) {
+        final data = userDoc.data()!;
+        print('Users data: $data');
+
+        // Default status for athletes
+        if (data['role'] == 'athlete' && data['status'] == null) {
+          data['status'] = 'approved';
+        }
+
+        return data;
+      }
+
+      final athleteDoc = await _firestore.collection('athletes').doc(userId).get();
+      print('Athletes doc exists: ${athleteDoc.exists}');
+      if (athleteDoc.exists && athleteDoc.data() != null) {
+        print('Found athlete profile, setting role to athlete');
+        return {
+          'role': 'athlete',
+          'status': 'approved',
+          'uid': userId,
+        };
+      }
+
+      print('No documents found anywhere - user likely needs to select role');
+      return {
+        'role': null,
+        'status': null,
+        'uid': userId,
+      };
+
+    } catch (e) {
+      print('Error getting user role: $e');
+      return {
+        'role': null,
+        'status': null,
+        'error': e.toString(),
+      };
+    } finally {
+      print('=== getUserRole DEBUG END ===');
+    }
+  }
+
+  // ==================== ATHLETE PROFILE OPERATIONS ====================
 
   /// Create or update athlete profile
   static Future<void> saveAthleteProfile(AthleteProfile profile) async {
@@ -36,7 +152,10 @@ class FirestoreService {
       final uid = userId ?? currentUserId;
       if (uid == null) throw 'User not authenticated';
 
-      final doc = await _firestore.collection('athletes').doc(uid).get();
+      final doc = await _firestore
+          .collection('athletes')
+          .doc(uid)
+          .get();
 
       if (doc.exists && doc.data() != null) {
         return AthleteProfile.fromJson(doc.data()!);
@@ -72,16 +191,17 @@ class FirestoreService {
     try {
       if (currentUserId == null) throw 'User not authenticated';
 
-      final docRef = _firestore
+      final docRef = await _firestore
           .collection('athletes')
           .doc(currentUserId)
           .collection('test_results')
-          .doc(testResult.id);
-
-      await docRef.set(testResult.toJson());
+          .add(testResult.toJson());
 
       // Update test completion status
       await updateTestStatus(testResult.testType, true);
+
+      // Increment daily test count
+      await incrementDailyTestCount();
 
       print('Test result saved with ID: ${docRef.id}');
       return docRef.id;
@@ -109,8 +229,7 @@ class FirestoreService {
       final querySnapshot = await query.get();
 
       return querySnapshot.docs
-          .map((doc) =>
-          TestResult.fromJson(doc.data() as Map<String, dynamic>))
+          .map((doc) => TestResult.fromJson(doc.data() as Map<String, dynamic>))
           .toList();
     } catch (e) {
       print('Error getting test results: $e');
@@ -150,7 +269,10 @@ class FirestoreService {
     try {
       if (currentUserId == null) throw 'User not authenticated';
 
-      await _firestore.collection('athletes').doc(currentUserId).update({
+      await _firestore
+          .collection('athletes')
+          .doc(currentUserId)
+          .update({
         'testStatus.$testType': completed,
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -165,8 +287,10 @@ class FirestoreService {
     try {
       if (currentUserId == null) return {};
 
-      final doc =
-      await _firestore.collection('athletes').doc(currentUserId).get();
+      final doc = await _firestore
+          .collection('athletes')
+          .doc(currentUserId)
+          .get();
 
       final data = doc.data();
       if (data != null && data['testStatus'] != null) {
@@ -186,198 +310,160 @@ class FirestoreService {
     }
   }
 
-  // ==================== LEADERBOARD OPERATIONS ====================
+  // ==================== SAI OFFICIAL OPERATIONS ====================
 
-  /// Get top performers for a specific test
-  static Future<List<Map<String, dynamic>>> getLeaderboard(
-      String testType, {
-        int limit = 10,
-        String? ageGroup,
-        String? gender,
-      }) async {
+  /// Create SAI official profile
+  static Future<void> createSAIOfficialProfile(Map<String, dynamic> officialData) async {
     try {
-      Query query = _firestore
-          .collectionGroup('test_results')
-          .where('testType', isEqualTo: testType)
-          .where('isValid', isEqualTo: true)
-          .orderBy('score', descending: true)
-          .limit(limit);
-
-      final querySnapshot = await query.get();
-
-      List<Map<String, dynamic>> leaderboard = [];
-
-      for (var doc in querySnapshot.docs) {
-        final testData = doc.data() as Map<String, dynamic>;
-
-        // Get athlete info
-        final athletePath = doc.reference.parent.parent;
-        if (athletePath != null) {
-          final athleteDoc = await athletePath.get();
-          final athleteData = athleteDoc.data() as Map<String, dynamic>?;
-
-          if (athleteData != null) {
-            // Filter by age group and gender if specified
-            if (ageGroup != null && athleteData['ageGroup'] != ageGroup) {
-              continue;
-            }
-            if (gender != null && athleteData['gender'] != gender) {
-              continue;
-            }
-
-            leaderboard.add({
-              'athleteId': athleteDoc.id,
-              'athleteName': athleteData['fullName'] ?? 'Anonymous',
-              'score': testData['score'],
-              'testType': testData['testType'],
-              'timestamp': testData['timestamp'],
-              'location':
-              '${athleteData['district'] ?? ''}, ${athleteData['state'] ?? ''}',
-            });
-          }
-        }
-      }
-
-      return leaderboard;
-    } catch (e) {
-      print('Error getting leaderboard: $e');
-      rethrow;
-    }
-  }
-
-  /// Get user's rank for a specific test
-  static Future<int> getUserRank(String testType) async {
-    try {
-      if (currentUserId == null) return 0;
-
-      final userBestResult = await getBestTestResult(testType);
-      if (userBestResult == null) return 0;
-
-      final betterScoresCount = await _firestore
-          .collectionGroup('test_results')
-          .where('testType', isEqualTo: testType)
-          .where('isValid', isEqualTo: true)
-          .where('score', isGreaterThan: userBestResult.score)
-          .count()
-          .get();
-
-      return betterScoresCount.count! + 1;
-    } catch (e) {
-      print('Error getting user rank: $e');
-      return 0;
-    }
-  }
-
-  // ==================== ANALYTICS & INSIGHTS ====================
-
-  /// Get user's performance analytics
-  static Future<Map<String, dynamic>> getUserAnalytics() async {
-    try {
-      if (currentUserId == null) return {};
-
-      final testResults = await getTestResults();
-      final testStatus = await getTestStatus();
-
-      // Calculate completion percentage
-      int completedTests =
-          testStatus.values.where((completed) => completed).length;
-      double completionPercentage =
-          (completedTests / testStatus.length) * 100;
-
-      // Calculate average scores per test type
-      Map<String, List<double>> scoresByType = {};
-      for (var result in testResults) {
-        scoresByType.putIfAbsent(result.testType, () => []);
-        scoresByType[result.testType]!.add(result.score);
-      }
-
-      Map<String, double> averageScores = {};
-      scoresByType.forEach((testType, scores) {
-        if (scores.isNotEmpty) {
-          averageScores[testType] =
-              scores.reduce((a, b) => a + b) / scores.length;
-        }
-      });
-
-      return {
-        'totalTests': testResults.length,
-        'completedTestTypes': completedTests,
-        'completionPercentage': completionPercentage,
-        'averageScores': averageScores,
-        'lastTestDate': testResults.isNotEmpty
-            ? testResults.first.timestamp.toIso8601String()
-            : null,
-        'testsByType': scoresByType.map((k, v) => MapEntry(k, v.length)),
-      };
-    } catch (e) {
-      print('Error getting analytics: $e');
-      rethrow;
-    }
-  }
-
-  // ==================== ADMIN/SAI OPERATIONS ====================
-
-  /// Submit assessment to SAI (for review)
-  static Future<void> submitAssessmentToSAI() async {
-    try {
-      if (currentUserId == null) throw 'User not authenticated';
-
-      final profile = await getAthleteProfile();
-      final testResults = await getTestResults();
-      final analytics = await getUserAnalytics();
-
-      if (profile == null) throw 'Profile not found';
-
-      // Check if all tests are completed
-      final testStatus = await getTestStatus();
-      bool allTestsCompleted =
-      testStatus.values.every((completed) => completed);
-
-      if (!allTestsCompleted) {
-        throw 'Please complete all fitness tests before submitting to SAI';
-      }
-
-      final submissionData = {
-        'athleteId': currentUserId,
-        'profile': profile.toJson(),
-        'testResults': testResults.map((result) => result.toJson()).toList(),
-        'analytics': analytics,
-        'submittedAt': FieldValue.serverTimestamp(),
-        'status': 'pending_review', // pending_review, approved, rejected
-        'submissionId': DateTime.now().millisecondsSinceEpoch.toString(),
-      };
+      final userId = officialData['uid'];
 
       await _firestore
-          .collection('sai_submissions')
-          .doc(currentUserId)
-          .set(submissionData);
+          .collection('sai_officials')
+          .doc(userId)
+          .set(officialData);
 
-      // Update athlete profile with submission status
-      await updateProfileFields({
-        'submittedToSAI': true,
-        'submissionDate': FieldValue.serverTimestamp(),
-      });
-
-      print('Assessment submitted to SAI successfully');
+      print('SAI official profile created for user: $userId');
     } catch (e) {
-      print('Error submitting to SAI: $e');
+      print('Error creating SAI official profile: $e');
       rethrow;
     }
   }
 
-  /// Check submission status
-  static Future<Map<String, dynamic>?> getSubmissionStatus() async {
+  /// Get SAI official profile
+  static Future<Map<String, dynamic>?> getSAIOfficialProfile(String userId) async {
     try {
-      if (currentUserId == null) return null;
+      final doc = await _firestore
+          .collection('sai_officials')
+          .doc(userId)
+          .get();
 
-      final doc =
-      await _firestore.collection('sai_submissions').doc(currentUserId).get();
-
-      return doc.data();
-    } catch (e) {
-      print('Error getting submission status: $e');
+      if (doc.exists && doc.data() != null) {
+        return doc.data();
+      }
       return null;
+    } catch (e) {
+      print('Error getting SAI official profile: $e');
+      rethrow;
     }
+  }
+
+  /// Get SAI dashboard statistics - FIXED VERSION
+  static Future<Map<String, dynamic>> getSAIDashboardStats() async {
+    try {
+      print('Getting SAI dashboard stats...');
+
+      // Get total athletes count
+      final athletesSnapshot = await _firestore.collection('athletes').count().get();
+      final totalAthletes = athletesSnapshot.count ?? 0;
+      print('Total athletes: $totalAthletes');
+
+      // Get today's assessments - REMOVED COLLECTION GROUP QUERY
+      int assessmentsToday = 0;
+
+      // Alternative approach: Get assessments from individual athlete collections
+      try {
+        final today = DateTime.now();
+        final startOfDay = DateTime(today.year, today.month, today.day);
+        final endOfDay = startOfDay.add(const Duration(days: 1));
+
+        // Instead of collectionGroup query, we'll use a simpler approach
+        final recentTestsQuery = await _firestore
+            .collection('daily_test_counts')
+            .doc('${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}')
+            .get();
+
+        if (recentTestsQuery.exists) {
+          assessmentsToday = recentTestsQuery.data()?['count'] ?? 0;
+        }
+      } catch (e) {
+        print('Error getting today assessments: $e');
+        assessmentsToday = 0;
+      }
+
+      // Get pending submissions
+      int pendingReviews = 0;
+      try {
+        final pendingSubmissionsSnapshot = await _firestore
+            .collection('sai_submissions')
+            .where('status', isEqualTo: 'pending_review')
+            .count()
+            .get();
+        pendingReviews = pendingSubmissionsSnapshot.count ?? 0;
+      } catch (e) {
+        print('Error getting pending reviews: $e');
+        pendingReviews = 0;
+      }
+
+      // Get flagged cases - SIMPLIFIED VERSION
+      int flaggedCases = 0;
+      try {
+        // Instead of collectionGroup query, check a flagged_cases collection
+        final flaggedCasesSnapshot = await _firestore
+            .collection('flagged_cases')
+            .where('resolved', isEqualTo: false)
+            .count()
+            .get();
+        flaggedCases = flaggedCasesSnapshot.count ?? 0;
+      } catch (e) {
+        print('Error getting flagged cases: $e');
+        flaggedCases = 0;
+      }
+
+      final stats = {
+        'totalAthletes': totalAthletes,
+        'assessmentsToday': assessmentsToday,
+        'pendingReviews': pendingReviews,
+        'flaggedCases': flaggedCases,
+      };
+
+      print('Dashboard stats loaded successfully: $stats');
+      return stats;
+
+    } catch (e) {
+      print('Error getting SAI dashboard stats: $e');
+      // Return default values instead of throwing error
+      return {
+        'totalAthletes': 0,
+        'assessmentsToday': 0,
+        'pendingReviews': 0,
+        'flaggedCases': 0,
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // ==================== ADMIN CHECK METHODS ====================
+
+  /// Check if user is system admin
+  static Future<bool> isUserAdmin([String? userId]) async {
+    try {
+      final uid = userId ?? currentUserId;
+      if (uid == null) return false;
+
+      final adminDoc = await _firestore
+          .collection('system_admins')
+          .doc(uid)
+          .get();
+
+      return adminDoc.exists && (adminDoc.data()?['active'] == true);
+    } catch (e) {
+      print('Error checking admin status: $e');
+      return false;
+    }
+  }
+
+  /// Listen to SAI official status changes
+  static Stream<String> listenToOfficialStatus(String userId) {
+    return _firestore
+        .collection('sai_officials')
+        .doc(userId)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.exists && snapshot.data() != null) {
+        return snapshot.data()!['status'] ?? 'pending';
+      }
+      return 'pending';
+    });
   }
 
   // ==================== REAL-TIME LISTENERS ====================
@@ -409,45 +495,428 @@ class FirestoreService {
         .orderBy('timestamp', descending: true)
         .snapshots()
         .map((snapshot) {
-      return snapshot.docs.map((doc) => TestResult.fromJson(doc.data())).toList();
+      return snapshot.docs
+          .map((doc) => TestResult.fromJson(doc.data()))
+          .toList();
     });
   }
 
-  // ==================== APP METADATA (TEST STANDARDS) ====================
+  // ==================== ADMIN/SAI OPERATIONS ====================
 
-  /// Get test standard by testType + ageGroup + gender
-  static Future<Map<String, dynamic>?> getTestStandard(
-      String testType, String ageGroup, String gender) async {
+  /// Submit assessment to SAI (for review)
+  static Future<void> submitAssessmentToSAI() async {
     try {
+      if (currentUserId == null) throw 'User not authenticated';
+
+      final profile = await getAthleteProfile();
+      final testResults = await getTestResults();
+
+      if (profile == null) throw 'Profile not found';
+
+      // Check if all tests are completed
+      final testStatus = await getTestStatus();
+      bool allTestsCompleted = testStatus.values.every((completed) => completed);
+
+      if (!allTestsCompleted) {
+        throw 'Please complete all fitness tests before submitting to SAI';
+      }
+
+      final submissionData = {
+        'athleteId': currentUserId,
+        'profile': profile.toJson(),
+        'testResults': testResults.map((result) => result.toJson()).toList(),
+        'submittedAt': FieldValue.serverTimestamp(),
+        'status': 'pending_review',
+        'submissionId': DateTime.now().millisecondsSinceEpoch.toString(),
+      };
+
+      await _firestore
+          .collection('sai_submissions')
+          .doc(currentUserId)
+          .set(submissionData);
+
+      // Update athlete profile with submission status
+      await updateProfileFields({
+        'submittedToSAI': true,
+        'submissionDate': FieldValue.serverTimestamp(),
+      });
+
+      print('Assessment submitted to SAI successfully');
+    } catch (e) {
+      print('Error submitting to SAI: $e');
+      rethrow;
+    }
+  }
+
+  /// Check submission status
+  static Future<Map<String, dynamic>?> getSubmissionStatus() async {
+    try {
+      if (currentUserId == null) return null;
+
       final doc = await _firestore
-          .collection('app_metadata')
-          .doc('test_standards')
-          .collection(testType)
-          .doc('$ageGroup-$gender')
+          .collection('sai_submissions')
+          .doc(currentUserId)
           .get();
 
       return doc.data();
     } catch (e) {
-      print('Error getting test standard: $e');
+      print('Error getting submission status: $e');
       return null;
     }
   }
 
-  /// Update or create a test standard (admin use only)
-  static Future<void> setTestStandard(
-      String testType, String ageGroup, String gender, Map<String, dynamic> data) async {
+  // ==================== APPROVAL SYSTEM METHODS ====================
+
+  /// Get all pending SAI official accounts
+  static Future<List<Map<String, dynamic>>> getPendingUsers() async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('sai_officials')
+          .where('status', isEqualTo: 'pending')
+          .get();
+
+      List<Map<String, dynamic>> pendingUsers = [];
+
+      for (var doc in querySnapshot.docs) {
+        Map<String, dynamic> userData = doc.data();
+        userData['userId'] = doc.id;
+        pendingUsers.add(userData);
+      }
+
+      return pendingUsers;
+    } catch (e) {
+      print('Failed to load pending users: $e');
+      throw Exception('Failed to load pending users: $e');
+    }
+  }
+
+  /// Approve a SAI official account
+  static Future<void> approveUser(String userId) async {
+    try {
+      await _firestore.collection('sai_officials').doc(userId).update({
+        'status': 'approved',
+        'approvedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Also update in users collection if exists
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        await _firestore.collection('users').doc(userId).update({
+          'status': 'approved',
+          'approvedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // Send approval notification to user
+      await _sendApprovalNotification(userId, approved: true);
+
+      print('User approved: $userId');
+    } catch (e) {
+      print('Failed to approve user: $e');
+      throw Exception('Failed to approve user: $e');
+    }
+  }
+
+  /// Reject a SAI official account
+  static Future<void> rejectUser(String userId) async {
+    try {
+      await _firestore.collection('sai_officials').doc(userId).update({
+        'status': 'rejected',
+        'rejectedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Also update in users collection if exists
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        await _firestore.collection('users').doc(userId).update({
+          'status': 'rejected',
+          'rejectedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // Send rejection notification to user
+      await _sendApprovalNotification(userId, approved: false);
+
+      print('User rejected: $userId');
+    } catch (e) {
+      print('Failed to reject user: $e');
+      throw Exception('Failed to reject user: $e');
+    }
+  }
+
+  /// Send notification to user about approval status
+  static Future<void> _sendApprovalNotification(String userId, {required bool approved}) async {
+    try {
+      await _firestore.collection('notifications').add({
+        'userId': userId,
+        'title': approved ? 'Account Approved' : 'Account Rejected',
+        'message': approved
+            ? 'Your SAI official account has been approved. You can now access the system.'
+            : 'Your SAI official account application has been rejected. Please contact support for more information.',
+        'type': 'account_status',
+        'read': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      print('Notification sent to user $userId: ${approved ? 'approved' : 'rejected'}');
+    } catch (e) {
+      print('Failed to send notification: $e');
+    }
+  }
+
+  /// Check user approval status
+  static Future<String> getUserStatus(String userId) async {
+    try {
+      // Check sai_officials collection first
+      final saiDoc = await _firestore.collection('sai_officials').doc(userId).get();
+      if (saiDoc.exists) {
+        return saiDoc.data()?['status'] ?? 'pending';
+      }
+
+      // Check users collection
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        return userDoc.data()?['status'] ?? 'approved'; // default to approved for old users
+      }
+
+      return 'not_found';
+    } catch (e) {
+      print('Failed to get user status: $e');
+      throw Exception('Failed to get user status: $e');
+    }
+  }
+
+  /// Set user as admin (use this carefully)
+  static Future<void> setUserAsAdmin(String userId) async {
+    try {
+      await _firestore.collection('system_admins').doc(userId).set({
+        'uid': userId,
+        'role': 'admin',
+        'status': 'approved',
+        'active': true,
+        'adminSince': FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print('User set as admin: $userId');
+    } catch (e) {
+      print('Error setting user as admin: $e');
+      rethrow;
+    }
+  }
+
+  /// One-time method to make current user admin (for initial setup)
+  static Future<void> makeCurrentUserAdmin() async {
+    if (currentUserId != null) {
+      await setUserAsAdmin(currentUserId!);
+      print('Current user is now admin: $currentUserId');
+    }
+  }
+
+  // Add this method to your FirestoreService class for debugging
+  static Future<void> debugUserCollections(String userId) async {
+    try {
+      print('\n=== COMPLETE USER COLLECTIONS DEBUG ===');
+      print('User ID: $userId');
+
+      // Check all possible collections
+      final collections = [
+        'system_admins',
+        'sai_officials',
+        'users',
+        'athletes'
+      ];
+
+      for (String collectionName in collections) {
+        try {
+          final doc = await _firestore.collection(collectionName).doc(userId).get();
+          print('\n--- $collectionName Collection ---');
+          print('Exists: ${doc.exists}');
+          if (doc.exists && doc.data() != null) {
+            final data = doc.data()!;
+            print('Data: $data');
+            print('Role: ${data['role']} (${data['role']?.runtimeType})');
+            print('Status: ${data['status']} (${data['status']?.runtimeType})');
+          } else {
+            print('No data in $collectionName');
+          }
+        } catch (e) {
+          print('Error checking $collectionName: $e');
+        }
+      }
+
+      print('\n=== END COMPLETE DEBUG ===\n');
+
+    } catch (e) {
+      print('Error in debug method: $e');
+    }
+  }
+
+  /// Force-fix user data if needed
+  static Future<void> fixUserRole(String userId, String correctRole, String correctStatus) async {
+    try {
+      print('Fixing user role: $userId -> $correctRole ($correctStatus)');
+
+      if (correctRole == 'sai_official') {
+        // Update sai_officials collection
+        await _firestore.collection('sai_officials').doc(userId).set({
+          'uid': userId,
+          'role': correctRole,
+          'status': correctStatus,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        // Also update users collection
+        await _firestore.collection('users').doc(userId).set({
+          'uid': userId,
+          'role': correctRole,
+          'status': correctStatus,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } else if (correctRole == 'athlete') {
+        await _firestore.collection('users').doc(userId).set({
+          'uid': userId,
+          'role': correctRole,
+          'status': correctStatus,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      print('User role fixed successfully');
+    } catch (e) {
+      print('Error fixing user role: $e');
+      rethrow;
+    }
+  }
+
+  // ==================== HELPER METHODS ====================
+
+  /// Use this to increment daily test counts
+  static Future<void> incrementDailyTestCount() async {
+    try {
+      final today = DateTime.now();
+      final dateKey = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+
+      await _firestore
+          .collection('daily_test_counts')
+          .doc(dateKey)
+          .set({
+        'count': FieldValue.increment(1),
+        'date': Timestamp.fromDate(today),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      print('Error incrementing daily test count: $e');
+      // Don't throw error, this is not critical
+    }
+  }
+
+  /// Use this to add flagged cases
+  static Future<void> addFlaggedCase(String athleteId, String testType, String reason) async {
     try {
       await _firestore
-          .collection('app_metadata')
-          .doc('test_standards')
-          .collection(testType)
-          .doc('$ageGroup-$gender')
-          .set(data, SetOptions(merge: true));
-
-      print('Test standard set for $testType | $ageGroup | $gender');
+          .collection('flagged_cases')
+          .add({
+        'athleteId': athleteId,
+        'testType': testType,
+        'reason': reason,
+        'resolved': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
     } catch (e) {
-      print('Error setting test standard: $e');
+      print('Error adding flagged case: $e');
+      // Don't throw error, this is not critical
+    }
+  }
+
+  /// Fix current user data
+  static Future<void> fixCurrentUserData() async {
+    try {
+      final userId = currentUserId;
+      if (userId == null) {
+        print('No current user found');
+        return;
+      }
+
+      print('Fixing user data for: $userId');
+
+      // Based on your console logs, your user should be sai_official with approved status
+      await _firestore.collection('sai_officials').doc(userId).set({
+        'uid': userId,
+        'role': 'sai_official',
+        'status': 'approved', // Make sure this is approved
+        'fullName': 'Pranshu',
+        'employeeId': '123456',
+        'designation': 'Sports Officer',
+        'department': 'cric',
+        'email': 'pran@gov.in',
+        'permissions': {
+          'review_results': true,
+          'manage_users': false,
+          'export_data': false,
+          'view_athletes': true,
+        },
+        'createdAt': FieldValue.serverTimestamp(),
+        'approvedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // Also ensure users collection has correct data
+      await _firestore.collection('users').doc(userId).set({
+        'uid': userId,
+        'role': 'sai_official',
+        'status': 'approved',
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print('User data fixed successfully! Status set to approved.');
+
+    } catch (e) {
+      print('Error fixing user data: $e');
       rethrow;
+    }
+  }
+
+  /// Check and display current user status
+  static Future<void> checkCurrentUserStatus() async {
+    try {
+      final userId = currentUserId;
+      if (userId == null) {
+        print('No current user found');
+        return;
+      }
+
+      print('\n=== CURRENT USER STATUS CHECK ===');
+      print('User ID: $userId');
+
+      // Check sai_officials collection
+      final saiDoc = await _firestore.collection('sai_officials').doc(userId).get();
+      if (saiDoc.exists) {
+        final data = saiDoc.data()!;
+        print('SAI Officials Collection:');
+        print('  Role: ${data['role']}');
+        print('  Status: ${data['status']}');
+        print('  Full Data: $data');
+      } else {
+        print('SAI Officials Collection: No document found');
+      }
+
+      // Check users collection
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        final data = userDoc.data()!;
+        print('Users Collection:');
+        print('  Role: ${data['role']}');
+        print('  Status: ${data['status']}');
+        print('  Full Data: $data');
+      } else {
+        print('Users Collection: No document found');
+      }
+
+      print('=== END STATUS CHECK ===\n');
+
+    } catch (e) {
+      print('Error checking user status: $e');
     }
   }
 
@@ -470,39 +939,26 @@ class FirestoreService {
       }
 
       // Delete main profile document
-      await _firestore.collection('athletes').doc(currentUserId).delete();
+      await _firestore
+          .collection('athletes')
+          .doc(currentUserId)
+          .delete();
 
       // Delete SAI submission if exists
-      await _firestore.collection('sai_submissions').doc(currentUserId).delete();
+      await _firestore
+          .collection('sai_submissions')
+          .doc(currentUserId)
+          .delete();
+
+      // Delete user role document
+      await _firestore
+          .collection('users')
+          .doc(currentUserId)
+          .delete();
 
       print('User data deleted successfully');
     } catch (e) {
       print('Error deleting user data: $e');
-      rethrow;
-    }
-  }
-
-  /// Batch operations for better performance
-  static Future<void> batchUpdateTestResults(List<TestResult> results) async {
-    try {
-      if (currentUserId == null) throw 'User not authenticated';
-
-      WriteBatch batch = _firestore.batch();
-
-      for (var result in results) {
-        final docRef = _firestore
-            .collection('athletes')
-            .doc(currentUserId)
-            .collection('test_results')
-            .doc(result.id);
-
-        batch.set(docRef, result.toJson());
-      }
-
-      await batch.commit();
-      print('Batch update completed for ${results.length} test results');
-    } catch (e) {
-      print('Error in batch update: $e');
       rethrow;
     }
   }
