@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "210379975180",
+    "project_id": "talentfind-42020",
+    "storage_bucket": "talentfind-42020.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:210379975180:android:2ca93dd3c84ad4d9381c29",
+        "android_client_info": {
+          "package_name": "com.example.talent_find"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "210379975180-gotk7a9ij9nu55s7vem6makr819i0hq3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.talent_find",
+            "certificate_hash": "3f672cdd4f0696678369abfa4cef5e923631da18"
+          }
+        },
+        {
+          "client_id": "210379975180-sn7ck6pc1j6chdfoauveh17k1c0ubtk6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAYtbeBDdNgYKRKm5vtUIqthQNfie2x-oA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "210379975180-sn7ck6pc1j6chdfoauveh17k1c0ubtk6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
